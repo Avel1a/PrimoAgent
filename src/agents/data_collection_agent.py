@@ -4,38 +4,45 @@ from ..tools.tiingo_tool import get_market_data as get_market_data_tiingo, get_c
 from ..tools.finnhub_tool import get_company_news, get_company_profile, get_company_basic_financials
 
 
-async def collect_data(symbol: str, analysis_date: Optional[str] = None) -> Dict[str, Any]:
+async def collect_data(symbol: str, analysis_date: Optional[str] = None, cached_company_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Collect market data and news for a symbol.
-    
+
     Args:
         symbol: Stock symbol (e.g., 'AAPL')
         analysis_date: Date for analysis in YYYY-MM-DD format (optional)
-        
+        cached_company_info: Pre-fetched company info (reused across days)
+
     Returns:
         Dict with collected data or error info
     """
     try:
         symbol = symbol.upper()
-        
+
         # Try Tiingo first (preferred data source)
         print(f"[DEBUG Data Collection] Trying Tiingo for {symbol}")
         market_result = await get_market_data_tiingo(symbol, analysis_date)
-        company_result = await get_company_info_tiingo(symbol)
-        
+
+        # Company info is cached across days (doesn't change)
+        if cached_company_info is not None:
+            company_result = None  # use cached
+        else:
+            company_result = await get_company_info_tiingo(symbol)
+
         print(f"[DEBUG Data Collection] Tiingo market result success: {market_result.success if market_result else 'No result'}")
         if market_result and not market_result.success:
             print(f"[DEBUG Data Collection] Tiingo market error: {market_result.error}")
-        
-        print(f"[DEBUG Data Collection] Tiingo company result success: {company_result.success if company_result else 'No result'}")
-        if company_result and not company_result.success:
-            print(f"[DEBUG Data Collection] Tiingo company error: {company_result.error}")
-        
+
+        if company_result:
+            print(f"[DEBUG Data Collection] Tiingo company result success: {company_result.success if company_result else 'No result'}")
+            if company_result and not company_result.success:
+                print(f"[DEBUG Data Collection] Tiingo company error: {company_result.error}")
+
         # Tiingo is now the only data source - if it fails, we fail
         if not market_result or not market_result.success:
             print(f"[ERROR Data Collection] Tiingo market data failed for {symbol}")
         
-        if not company_result or not company_result.success:
+        if not cached_company_info and (not company_result or not company_result.success):
             print(f"[ERROR Data Collection] Tiingo company info failed for {symbol}")
         
         # Collect news and financial data from Finnhub (unchanged)
@@ -47,7 +54,7 @@ async def collect_data(symbol: str, analysis_date: Optional[str] = None) -> Dict
             'symbol': symbol,
             'analysis_date': analysis_date,
             'market_data': market_result.data if market_result and market_result.success else None,
-            'company_info': company_result.data if company_result and company_result.success else None,
+            'company_info': cached_company_info if cached_company_info is not None else (company_result.data if company_result and company_result.success else None),
             'news_data': news_result.data if news_result and news_result.success else None,
             'company_profile': profile_result.data if profile_result and profile_result.success else None,
             'basic_financials': financials_result.data if financials_result and financials_result.success else None,
@@ -79,8 +86,15 @@ async def data_collection_agent_node(state: AgentState) -> AgentState:
         symbol = state['symbols'][0] if state['symbols'] else 'AAPL'
         analysis_date = state['analysis_date']
         
+        # Cache company info across days (first call fetches, rest reuse)
+        cached = state.get('_cached_company_info')
+
         # Collect data with analysis date
-        result = await collect_data(symbol, analysis_date)
+        result = await collect_data(symbol, analysis_date, cached_company_info=cached)
+
+        # Store company info for next day
+        if cached is None and result.get('company_info'):
+            state['_cached_company_info'] = result['company_info']
         
         # Update state
         state['data_collection_results'] = result

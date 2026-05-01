@@ -9,18 +9,34 @@ from ..tools.yfinance_tool import fetch_daily_dataframe
 async def analyze_technical(symbol: str, analysis_date: Optional[str] = None, market_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Calculate technical indicators for a symbol up to a specific date.
-    
+
     Args:
         symbol: Stock symbol (e.g., 'AAPL')
         analysis_date: Date for analysis in YYYY-MM-DD format (optional)
         market_data: Optional market data from previous agent
-        
+
     Returns:
         Dict with technical indicators or error info
     """
     try:
         symbol = symbol.upper()
-        df = fetch_daily_dataframe(symbol, outputsize="compact")
+
+        # Prefer Tiingo historical data from Data Collection Agent
+        if market_data and isinstance(market_data, dict) and 'historical_data' in market_data:
+            historical_records = market_data['historical_data']
+            if historical_records:
+                df = pd.DataFrame(historical_records)
+                df['Date'] = pd.to_datetime(df['date'])
+                df = df.rename(columns={
+                    'open': 'Open', 'high': 'High', 'low': 'Low',
+                    'close': 'Close', 'volume': 'Volume'
+                })
+                df = df.set_index('Date').sort_index()
+            else:
+                df = pd.DataFrame()
+        else:
+            df = fetch_daily_dataframe(symbol, outputsize="compact")
+
         if df is None or df.empty:
             return {
                 'symbol': symbol,

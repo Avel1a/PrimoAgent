@@ -19,7 +19,7 @@ def debug_state(state: AgentState, agent_name: str) -> AgentState:
     # Data Collection Results
     data_results = state.get('data_collection_results')
     if data_results and agent_name == "Data Collection":
-        market_data = data_results.get('market_data', {})
+        market_data = data_results.get('market_data') or {}
         current_price = market_data.get('current_price', 'N/A')
         print(f"Current Price: ${current_price}")
     
@@ -101,15 +101,16 @@ def create_workflow() -> StateGraph:
     return workflow
 
 
-async def run_analysis(symbols: list[str], session_id: str = "default", analysis_date: Optional[str] = None) -> Dict[str, Any]:
+async def run_analysis(symbols: list[str], session_id: str = "default", analysis_date: Optional[str] = None, cached_company_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Run complete analysis workflow for symbols.
-        
+
         Args:
             symbols: List of stock symbols to analyze
         session_id: Session identifier
         analysis_date: Date for analysis in YYYY-MM-DD format (optional, defaults to today)
-            
+        cached_company_info: Pre-fetched company info reused across days
+
         Returns:
         Dict with analysis results
         """
@@ -117,9 +118,11 @@ async def run_analysis(symbols: list[str], session_id: str = "default", analysis
         # Create workflow
         workflow = create_workflow()
         app = workflow.compile()
-        
-        # Initialize state with analysis date
+
+        # Initialize state with analysis date and cached company info
         initial_state = create_initial_state(session_id, symbols, analysis_date)
+        if cached_company_info:
+            initial_state['_cached_company_info'] = cached_company_info
         
         # Run workflow
         result = await app.ainvoke(initial_state)
@@ -137,6 +140,7 @@ async def run_analysis(symbols: list[str], session_id: str = "default", analysis
                 'portfolio_manager': result.get('portfolio_manager_results')
             },
             'final_step': result.get('current_step'),
+            '_cached_company_info': result.get('_cached_company_info'),
             'error': result.get('error')
         }
         

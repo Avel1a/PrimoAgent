@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import time
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Tuple
@@ -115,20 +116,27 @@ async def main():
         
         successful_runs = 0
         failed_runs = 0
-        
+        company_info_cache = None  # Cache across days (saves Tiingo calls)
+
         # Process each trading day
         for i, date in enumerate(trading_dates, 1):
             print(f"\n{'='*60}")
             print(f"Day {i}/{len(trading_dates)}: {date}")
             print(f"{'='*60}")
-            
+
             # Format session ID
             date_formatted = date.replace("-", "_")
             session_id = f"daily_analysis_{date_formatted}"
-            
+
             try:
-                # Execute workflow for this date
-                result = await run_analysis(symbols, session_id, date)
+                # Execute workflow for this date (pass cached company info to skip Tiingo call)
+                result = await run_analysis(symbols, session_id, date,
+                                            cached_company_info=company_info_cache)
+
+                # Update company info cache for next day
+                if not company_info_cache and result.get('_cached_company_info'):
+                    company_info_cache = result['_cached_company_info']
+                    print("[CACHE] Company info cached for subsequent days")
                 
                 # Print results summary
                 print_workflow_summary(result, date)
@@ -140,6 +148,10 @@ async def main():
                         print(f"Per-symbol CSV saved in ./output/csv for {date}")
                 else:
                     failed_runs += 1
+
+                # Rate limit: sleep 6s between days to stay within Tiingo free tier (50 req/hr)
+                if i < len(trading_dates):
+                    time.sleep(6)
                     
             except Exception as e:
                 print(f"{date} - Execution error: {e}")

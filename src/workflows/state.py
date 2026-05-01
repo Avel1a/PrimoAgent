@@ -11,13 +11,16 @@ class AgentState(TypedDict):
     symbols: List[str]
     current_step: str
     analysis_date: str  # Date for analysis in YYYY-MM-DD format
-    
+
     # Agent results (simple dictionaries)
     data_collection_results: Optional[Dict[str, Any]]
     technical_analysis_results: Optional[Dict[str, Any]]
     news_intelligence_results: Optional[Dict[str, Any]]
     portfolio_manager_results: Optional[Dict[str, Any]]
-    
+
+    # Cross-day cache
+    _cached_company_info: Optional[Dict[str, Any]]
+
     # Simple error handling
     error: Optional[str]
 
@@ -37,6 +40,7 @@ def create_initial_state(session_id: str, symbols: List[str], analysis_date: Opt
         technical_analysis_results=None,
         news_intelligence_results=None,
         portfolio_manager_results=None,
+        _cached_company_info=None,
         error=None
     )
 
