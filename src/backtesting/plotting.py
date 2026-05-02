@@ -58,8 +58,16 @@ def _extract_dates_prices(cerebro) -> Tuple[List, List[float]]:
     return dates, prices
 
 
-def plot_single_stock(symbol: str, primo_cerebro, buyhold_cerebro, output_dir: str, filename: str | None = None) -> Path:
-    """Create single-stock portfolio comparison chart and save it."""
+def plot_single_stock(
+    symbol: str,
+    primo_cerebro,
+    buyhold_cerebro,
+    output_dir: str,
+    filename: str | None = None,
+    spy_portfolio: list | None = None,
+    spy_dates: list | None = None,
+) -> Path:
+    """Create single-stock portfolio comparison chart with S&P 500 benchmark."""
     dates, prices = _extract_dates_prices(primo_cerebro)
 
     primo_strategy = primo_cerebro.runstrats[0][0]
@@ -82,7 +90,9 @@ def plot_single_stock(symbol: str, primo_cerebro, buyhold_cerebro, output_dir: s
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), gridspec_kw={"height_ratios": [2, 1]})
 
     ax1.plot(dates, primo_portfolio, color="blue", linewidth=2, label="PrimoAgent Portfolio")
-    ax1.plot(dates, buyhold_portfolio, color="red", linewidth=2, label="Buy & Hold Portfolio")
+    ax1.plot(dates, buyhold_portfolio, color="red", linewidth=2, label=f"Buy & Hold {symbol}")
+    if spy_portfolio is not None and spy_dates is not None and len(spy_portfolio) > 0:
+        ax1.plot(spy_dates, spy_portfolio, color="orange", linewidth=2, linestyle="--", label="S&P 500 (SPY)")
     ax1.set_ylabel("Portfolio Value ($)")
 
     signals_df = getattr(primo_strategy, "signals_df", None)
@@ -155,51 +165,81 @@ def plot_single_stock(symbol: str, primo_cerebro, buyhold_cerebro, output_dir: s
     return save_path
 
 
-def plot_returns_bar_chart(all_results: Dict[str, Dict[str, Any]], save_path: Path) -> None:
-    """Create simple bar chart showing returns for all stocks and strategies."""
-    fig, ax = plt.subplots(figsize=(12, 8))
+def plot_returns_bar_chart(
+    all_results: Dict[str, Dict[str, Any]],
+    save_path: Path,
+    spy_metrics: Dict[str, Any] | None = None,
+    ew_metrics: Dict[str, Any] | None = None,
+) -> None:
+    """Create bar chart comparing PrimoAgent, Buy & Hold, S&P 500, and Equal Weight."""
+    n_stocks = len(all_results)
+    has_spy = spy_metrics is not None
+    has_ew = ew_metrics is not None
+    n_benchmarks = 1 + has_spy + has_ew  # Buy&Hold + optional SPY + optional EW
+
+    fig, ax = plt.subplots(figsize=(14, 8))
 
     symbols = sorted(all_results.keys())
     primo_returns = [all_results[s]["primo"]["Cumulative Return [%]"] for s in symbols]
     buyhold_returns = [all_results[s]["buyhold"]["Cumulative Return [%]"] for s in symbols]
 
     x = range(len(symbols))
-    width = 0.35
-    bars1 = ax.bar([i - width / 2 for i in x], primo_returns, width, label="PrimoAgent", color="#1f77b4", alpha=0.8)
-    bars2 = ax.bar([i + width / 2 for i in x], buyhold_returns, width, label="Buy & Hold", color="#ff7f0e", alpha=0.8)
+    width = 0.8 / (n_benchmarks + 1)  # +1 for PrimoAgent
+
+    # PrimoAgent bars
+    offset = -n_benchmarks * width / 2
+    bars_p = ax.bar([i + offset for i in x], primo_returns, width, label="PrimoAgent", color="#1f77b4", alpha=0.9)
+    offset += width
+
+    # Buy & Hold bars
+    bars_bh = ax.bar([i + offset for i in x], buyhold_returns, width, label="Buy & Hold", color="#ff7f0e", alpha=0.9)
+    offset += width
+
+    # S&P 500 benchmark (same value for all stocks, shown as horizontal reference)
+    if has_spy:
+        spy_return = spy_metrics["Cumulative Return [%]"]
+        spy_values = [spy_return] * n_stocks
+        bars_spy = ax.bar([i + offset for i in x], spy_values, width, label="S&P 500 (SPY)", color="#2ca02c", alpha=0.9)
+        offset += width
+
+    # Equal Weight benchmark
+    if has_ew:
+        ew_return = ew_metrics["Cumulative Return [%]"]
+        ew_values = [ew_return] * n_stocks
+        bars_ew = ax.bar([i + offset for i in x], ew_values, width, label="Equal Weight", color="#9467bd", alpha=0.9)
 
     ax.set_xlabel("Stocks")
     ax.set_ylabel("Cumulative Return (%)")
-    ax.set_title("Performance Comparison: PrimoAgent vs Buy & Hold")
+    title = "Performance Comparison"
+    if has_spy:
+        title += " (vs S&P 500)"
+    ax.set_title(title)
     ax.set_xticks(list(x))
     ax.set_xticklabels(symbols)
-    ax.legend()
+    ax.legend(loc="upper left")
     ax.grid(True, alpha=0.3, axis="y")
     ax.axhline(y=0, color="black", linewidth=0.5)
 
-    for bar, value in zip(bars1, primo_returns):
-        height = bar.get_height()
-        ax.text(
-            bar.get_x() + bar.get_width() / 2.0,
-            height + (0.5 if height >= 0 else -1.5),
-            f"{value:.1f}%",
-            ha="center",
-            va="bottom" if height >= 0 else "top",
-            fontsize=10,
-            fontweight="bold",
-        )
+    # Value labels on bars
+    def label_bars(bars, values):
+        for bar, value in zip(bars, values):
+            height = bar.get_height()
+            ax.text(
+                bar.get_x() + bar.get_width() / 2.0,
+                height + (0.5 if height >= 0 else -1.5),
+                f"{value:.1f}%",
+                ha="center",
+                va="bottom" if height >= 0 else "top",
+                fontsize=9,
+                fontweight="bold",
+            )
 
-    for bar, value in zip(bars2, buyhold_returns):
-        height = bar.get_height()
-        ax.text(
-            bar.get_x() + bar.get_width() / 2.0,
-            height + (0.5 if height >= 0 else -1.5),
-            f"{value:.1f}%",
-            ha="center",
-            va="bottom" if height >= 0 else "top",
-            fontsize=10,
-            fontweight="bold",
-        )
+    label_bars(bars_p, primo_returns)
+    label_bars(bars_bh, buyhold_returns)
+    if has_spy:
+        label_bars(bars_spy, spy_values)
+    if has_ew:
+        label_bars(bars_ew, ew_values)
 
     plt.tight_layout()
     save_path.parent.mkdir(parents=True, exist_ok=True)
