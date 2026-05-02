@@ -4,15 +4,32 @@ from typing import Any, Dict, Tuple, Type
 
 import backtrader as bt
 
+from ..config import config
+
 DEFAULT_CASH = 100000
 DEFAULT_COMMISSION = 0
 
 
-def create_cerebro(cash: float = DEFAULT_CASH, commission: float = DEFAULT_COMMISSION) -> bt.Cerebro:
-    """Create and configure Backtrader Cerebro engine with analyzers."""
+def create_cerebro(
+    cash: float | None = None,
+    commission: float | None = None,
+    slippage: float | None = None,
+) -> bt.Cerebro:
+    """Create Backtrader Cerebro engine with realistic trading costs."""
     cerebro = bt.Cerebro()
-    cerebro.broker.setcash(cash)
-    cerebro.broker.setcommission(commission=commission)
+
+    effective_cash = cash if cash is not None else config.backtest_initial_cash
+    effective_commission = commission if commission is not None else config.backtest_commission_pct / 100
+    effective_slippage = slippage if slippage is not None else config.backtest_slippage_pct / 100
+
+    cerebro.broker.setcash(effective_cash)
+
+    # Commission: percentage of trade value (e.g., 0.001 = 0.1%)
+    cerebro.broker.setcommission(commission=effective_commission)
+
+    # Fixed-percentage slippage on each trade
+    cerebro.broker.set_slippage_perc(perc=effective_slippage)
+
     cerebro.addanalyzer(bt.analyzers.PyFolio, _name="pyfolio")
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")
     return cerebro
@@ -22,10 +39,13 @@ def run_backtest(
     ohlc_data,
     strategy_class: Type[bt.Strategy],
     strategy_name: str,
+    cash: float | None = None,
+    commission: float | None = None,
+    slippage: float | None = None,
     **strategy_params: Any,
 ) -> Tuple[Dict[str, Any], bt.Cerebro]:
-    """Run a backtest with given strategy; return metrics and the Cerebro instance."""
-    cerebro = create_cerebro()
+    """Run a backtest with realistic trading costs and slippage."""
+    cerebro = create_cerebro(cash=cash, commission=commission, slippage=slippage)
     cerebro.addstrategy(strategy_class, **strategy_params)
 
     data_params = {

@@ -113,11 +113,57 @@ class Config:
             return {"provider": "openai", "model": config_value, "temperature": 0.3}
         return config_value
     
+    # Risk Configuration
+    @property
+    def risk_max_position_pct(self) -> float:
+        return self._config_data['risk']['max_position_pct']
+
+    @property
+    def risk_stop_loss_pct(self) -> float:
+        return self._config_data['risk']['stop_loss_pct']
+
+    @property
+    def risk_take_profit_pct(self) -> float:
+        return self._config_data['risk']['take_profit_pct']
+
+    @property
+    def risk_max_drawdown_pct(self) -> float:
+        return self._config_data['risk']['max_drawdown_pct']
+
+    @property
+    def risk_max_daily_var_pct(self) -> float:
+        return self._config_data['risk']['max_daily_var_pct']
+
+    @property
+    def risk_var_confidence(self) -> float:
+        return self._config_data['risk']['var_confidence']
+
+    @property
+    def risk_var_lookback_days(self) -> int:
+        return self._config_data['risk']['var_lookback_days']
+
+    @property
+    def risk_min_cash_reserve_pct(self) -> float:
+        return self._config_data['risk']['min_cash_reserve_pct']
+
+    # Backtesting Configuration
+    @property
+    def backtest_initial_cash(self) -> float:
+        return self._config_data['backtesting']['initial_cash']
+
+    @property
+    def backtest_commission_pct(self) -> float:
+        return self._config_data['backtesting']['commission_pct']
+
+    @property
+    def backtest_slippage_pct(self) -> float:
+        return self._config_data['backtesting']['slippage_pct']
+
     # Output Configuration
     @property
     def csv_output_path(self) -> str:
         return self._config_data['output']['csv_path']
-    
+
     @property
     def reports_output_path(self) -> str:
         return self._config_data['output']['reports_path']

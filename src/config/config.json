@@ -49,6 +49,21 @@
       "temperature": 0.3
     }
   },
+  "risk": {
+    "max_position_pct": 25,
+    "stop_loss_pct": 5,
+    "take_profit_pct": 15,
+    "max_drawdown_pct": 20,
+    "max_daily_var_pct": 2.0,
+    "var_confidence": 0.95,
+    "var_lookback_days": 252,
+    "min_cash_reserve_pct": 10
+  },
+  "backtesting": {
+    "initial_cash": 100000,
+    "commission_pct": 0.1,
+    "slippage_pct": 0.1
+  },
   "output": {
     "csv_path": "./output/csv",
     "reports_path": "./output/reports"

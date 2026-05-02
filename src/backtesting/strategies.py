@@ -95,10 +95,7 @@ class BuyAndHoldStrategy(bt.Strategy):
         self.portfolio_values.append(portfolio_value)
 
         if not self.bought:
-            # Reserve ~1.2% for commission + slippage when buying with all cash
-            commission_factor = 1.012
-            safe_cash = self.broker.getcash() / commission_factor
-            size = int(safe_cash / self.data.close[0])
+            size = int(self.broker.getcash() / self.data.close[0])
 
             if size > 0:
                 self.buy(size=size)

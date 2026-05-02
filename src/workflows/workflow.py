@@ -5,6 +5,7 @@ from ..agents.data_collection_agent import data_collection_agent_node
 from ..agents.technical_analysis_agent import technical_analysis_agent_node
 from ..agents.news_intelligence_agent import news_intelligence_agent_node
 from ..agents.portfolio_manager_agent import portfolio_manager_agent_node
+from ..agents.risk_manager_agent import risk_manager_agent_node
 
 
 def debug_state(state: AgentState, agent_name: str) -> AgentState:
@@ -75,6 +76,17 @@ async def debug_portfolio_manager_node(state: AgentState) -> AgentState:
     return debug_state(result, "Portfolio Manager")
 
 
+async def debug_risk_manager_node(state: AgentState) -> AgentState:
+    """Risk manager node with debug output."""
+    result = await risk_manager_agent_node(state)
+    risk_results = result.get("risk_manager_results", {})
+    if risk_results:
+        action = risk_results.get("action", "unknown")
+        reason = risk_results.get("reason", "")
+        print(f"Risk Manager: {action} — {reason}")
+    return debug_state(result, "Risk Manager")
+
+
 def create_workflow() -> StateGraph:
     """
     Create LangGraph workflow connecting all agents.
@@ -90,7 +102,8 @@ def create_workflow() -> StateGraph:
     workflow.add_node("technical_analysis", debug_technical_analysis_node)
     workflow.add_node("news_intelligence", debug_news_intelligence_node)
     workflow.add_node("portfolio_manager", debug_portfolio_manager_node)
-    
+    workflow.add_node("risk_manager", debug_risk_manager_node)
+
     # Define conditional flow — errors skip to END, otherwise linear
     workflow.set_entry_point("data_collection")
     workflow.add_conditional_edges("data_collection", should_continue, {
@@ -106,6 +119,10 @@ def create_workflow() -> StateGraph:
         END: END,
     })
     workflow.add_conditional_edges("portfolio_manager", should_continue, {
+        "risk_manager": "risk_manager",
+        END: END,
+    })
+    workflow.add_conditional_edges("risk_manager", should_continue, {
         END: END,
     })
     
@@ -148,7 +165,8 @@ async def run_analysis(symbols: list[str], session_id: str = "default", analysis
                 'data_collection': result.get('data_collection_results'),
                 'technical_analysis': result.get('technical_analysis_results'),
                 'news_intelligence': result.get('news_intelligence_results'),
-                'portfolio_manager': result.get('portfolio_manager_results')
+                'portfolio_manager': result.get('portfolio_manager_results'),
+                'risk_manager': result.get('risk_manager_results'),
             },
             'final_step': result.get('current_step'),
             '_cached_company_info': result.get('_cached_company_info'),
@@ -188,6 +206,8 @@ def should_continue(state: AgentState) -> str:
     elif current_step == 'news_intelligence_complete':
         return 'portfolio_manager'
     elif current_step == 'portfolio_management_complete':
+        return 'risk_manager'
+    elif current_step == 'risk_management_complete':
         return END
     else:
         return END 
