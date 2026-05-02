@@ -35,7 +35,7 @@ async def analyze_technical(symbol: str, analysis_date: Optional[str] = None, ma
             else:
                 df = pd.DataFrame()
         else:
-            df = fetch_daily_dataframe(symbol, outputsize="compact")
+            df = await fetch_daily_dataframe(symbol, outputsize="compact")
 
         if df is None or df.empty:
             return {

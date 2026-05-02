@@ -1,3 +1,5 @@
+import asyncio
+from copy import deepcopy
 from typing import Dict, Any, Optional
 from langgraph.graph import StateGraph, END
 from .state import AgentState, create_initial_state
@@ -11,32 +13,27 @@ from ..agents.risk_manager_agent import risk_manager_agent_node
 def debug_state(state: AgentState, agent_name: str) -> AgentState:
     """Debug function to log state after each agent."""
     print(f"\n{agent_name} Agent Complete:")
-    
-    # Basic info
+
     analysis_date = state.get('analysis_date', 'N/A')
     symbol = state['symbols'][0] if state.get('symbols') else 'N/A'
     print(f"Date: {analysis_date} | Symbol: {symbol}")
-    
-    # Data Collection Results
+
     data_results = state.get('data_collection_results')
     if data_results and agent_name == "Data Collection":
         market_data = data_results.get('market_data') or {}
         current_price = market_data.get('current_price', 'N/A')
         print(f"Current Price: ${current_price}")
-    
-    # Technical Analysis Results
+
     tech_results = state.get('technical_analysis_results')
-    if tech_results and agent_name == "Technical Analysis":
+    if tech_results and agent_name == "Parallel Analysis":
         success = tech_results.get('success', False)
         print(f"Technical Success: {success}")
-    
-    # News Intelligence Results
+
     news_results = state.get('news_intelligence_results')
-    if news_results and agent_name == "News Intelligence":
+    if news_results and agent_name == "Parallel Analysis":
         success = news_results.get('success', False)
         print(f"News Success: {success}")
-    
-    # Portfolio Manager Results
+
     portfolio_results = state.get('portfolio_manager_results')
     if portfolio_results and agent_name == "Portfolio Manager":
         symbol_data = portfolio_results.get(symbol, {})
@@ -44,40 +41,50 @@ def debug_state(state: AgentState, agent_name: str) -> AgentState:
             signal = symbol_data.get('trading_signal', 'N/A')
             confidence = symbol_data.get('confidence_level', 'N/A')
             print(f"Signal: {signal} | Confidence: {confidence}")
-    
-    # Error state
+
     if state.get('error'):
         print(f"Error: {state.get('error')}")
-    
+
     return state
 
 
 async def debug_data_collection_node(state: AgentState) -> AgentState:
-    """Data collection node with debug output."""
     result = await data_collection_agent_node(state)
     return debug_state(result, "Data Collection")
 
 
-async def debug_technical_analysis_node(state: AgentState) -> AgentState:
-    """Technical analysis node with debug output.""" 
-    result = await technical_analysis_agent_node(state)
-    return debug_state(result, "Technical Analysis")
+async def debug_parallel_analysis_node(state: AgentState) -> AgentState:
+    """Run technical analysis and news intelligence in parallel via asyncio."""
+    state_tech = deepcopy(state)
+    state_news = deepcopy(state)
 
+    tech_task = asyncio.create_task(technical_analysis_agent_node(state_tech))
+    news_task = asyncio.create_task(news_intelligence_agent_node(state_news))
 
-async def debug_news_intelligence_node(state: AgentState) -> AgentState:
-    """News intelligence node with debug output."""
-    result = await news_intelligence_agent_node(state)  
-    return debug_state(result, "News Intelligence")
+    tech_result, news_result = await asyncio.gather(tech_task, news_task)
+
+    # Merge results back into the original state
+    state['technical_analysis_results'] = tech_result.get('technical_analysis_results')
+    state['news_intelligence_results'] = news_result.get('news_intelligence_results')
+
+    # Propagate errors
+    if tech_result.get('error') and not state.get('error'):
+        state['error'] = tech_result['error']
+    if news_result.get('error') and not state.get('error'):
+        state['error'] = news_result['error']
+
+    if not state.get('error'):
+        state['current_step'] = 'analysis_complete'
+
+    return debug_state(state, "Parallel Analysis")
 
 
 async def debug_portfolio_manager_node(state: AgentState) -> AgentState:
-    """Portfolio manager node with debug output."""
     result = await portfolio_manager_agent_node(state)
     return debug_state(result, "Portfolio Manager")
 
 
 async def debug_risk_manager_node(state: AgentState) -> AgentState:
-    """Risk manager node with debug output."""
     result = await risk_manager_agent_node(state)
     risk_results = result.get("risk_manager_results", {})
     if risk_results:
@@ -89,32 +96,25 @@ async def debug_risk_manager_node(state: AgentState) -> AgentState:
 
 def create_workflow() -> StateGraph:
     """
-    Create LangGraph workflow connecting all agents.
-            
-        Returns:
-        StateGraph: Configured workflow graph
+    Create LangGraph workflow with parallel technical + news analysis.
+
+    Flow:
+        data_collection → [technical_analysis ∥ news_intelligence] → portfolio_manager → risk_manager → END
     """
-    # Initialize workflow
     workflow = StateGraph(AgentState)
-    
-    # Add nodes with debug output
+
     workflow.add_node("data_collection", debug_data_collection_node)
-    workflow.add_node("technical_analysis", debug_technical_analysis_node)
-    workflow.add_node("news_intelligence", debug_news_intelligence_node)
+    workflow.add_node("parallel_analysis", debug_parallel_analysis_node)
     workflow.add_node("portfolio_manager", debug_portfolio_manager_node)
     workflow.add_node("risk_manager", debug_risk_manager_node)
 
-    # Define conditional flow — errors skip to END, otherwise linear
     workflow.set_entry_point("data_collection")
+
     workflow.add_conditional_edges("data_collection", should_continue, {
-        "technical_analysis": "technical_analysis",
+        "parallel_analysis": "parallel_analysis",
         END: END,
     })
-    workflow.add_conditional_edges("technical_analysis", should_continue, {
-        "news_intelligence": "news_intelligence",
-        END: END,
-    })
-    workflow.add_conditional_edges("news_intelligence", should_continue, {
+    workflow.add_conditional_edges("parallel_analysis", should_continue, {
         "portfolio_manager": "portfolio_manager",
         END: END,
     })
@@ -125,7 +125,7 @@ def create_workflow() -> StateGraph:
     workflow.add_conditional_edges("risk_manager", should_continue, {
         END: END,
     })
-    
+
     return workflow
 
 
@@ -133,29 +133,25 @@ async def run_analysis(symbols: list[str], session_id: str = "default", analysis
     """
     Run complete analysis workflow for symbols.
 
-        Args:
-            symbols: List of stock symbols to analyze
+    Args:
+        symbols: List of stock symbols to analyze
         session_id: Session identifier
         analysis_date: Date for analysis in YYYY-MM-DD format (optional, defaults to today)
         cached_company_info: Pre-fetched company info reused across days
 
-        Returns:
+    Returns:
         Dict with analysis results
-        """
+    """
     try:
-        # Create workflow
         workflow = create_workflow()
         app = workflow.compile()
 
-        # Initialize state with analysis date and cached company info
         initial_state = create_initial_state(session_id, symbols, analysis_date)
         if cached_company_info:
             initial_state['_cached_company_info'] = cached_company_info
-        
-        # Run workflow
+
         result = await app.ainvoke(initial_state)
-        
-        # Extract results
+
         return {
             'success': True,
             'session_id': session_id,
@@ -172,7 +168,7 @@ async def run_analysis(symbols: list[str], session_id: str = "default", analysis
             '_cached_company_info': result.get('_cached_company_info'),
             'error': result.get('error')
         }
-        
+
     except Exception as e:
         print(f"Workflow error: {e}")
         return {
@@ -185,29 +181,19 @@ async def run_analysis(symbols: list[str], session_id: str = "default", analysis
 
 
 def should_continue(state: AgentState) -> str:
-    """
-    Simple conditional logic for workflow routing.
-    
-    Args:
-        state: Current workflow state
-        
-    Returns:
-        Next step or END
-    """
+    """Conditional routing: errors skip to END."""
     if state.get('error'):
         return END
-    
+
     current_step = state.get('current_step', '')
-    
+
     if current_step == 'data_collection_complete':
-        return 'technical_analysis'
-    elif current_step == 'technical_analysis_complete':
-        return 'news_intelligence'
-    elif current_step == 'news_intelligence_complete':
+        return 'parallel_analysis'
+    elif current_step == 'analysis_complete':
         return 'portfolio_manager'
     elif current_step == 'portfolio_management_complete':
         return 'risk_manager'
     elif current_step == 'risk_management_complete':
         return END
     else:
-        return END 
+        return END
