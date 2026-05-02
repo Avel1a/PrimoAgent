@@ -60,13 +60,16 @@ def save_workflow_to_csv(workflow_result: Dict[str, Any], date: str) -> bool:
             print(f"No portfolio manager results found for {symbol}.")
             return False
             
-        symbol_portfolio_result = portfolio_results[symbol]
-        
+        symbol_portfolio_result = portfolio_results.get(symbol)
+        if not isinstance(symbol_portfolio_result, dict):
+            print(f"No valid portfolio result for {symbol}.")
+            return False
+
         # Check if portfolio analysis was successful
         if not symbol_portfolio_result.get('success', False):
             print(f"Portfolio analysis failed for {symbol}: {symbol_portfolio_result.get('error', 'Unknown error')}")
             return False
-        
+
         # Get data collection results for current price
         data_results = results.get('data_collection', {})
         market_data = data_results.get('market_data', {}) if data_results else {}
@@ -219,8 +222,8 @@ def save_workflow_to_symbol_csv(workflow_result: Dict[str, Any], date: str, data
         portfolio_results = results.get('portfolio_manager', {})
         if not portfolio_results or symbol not in portfolio_results:
             return False
-        symbol_portfolio_result = portfolio_results[symbol]
-        if not symbol_portfolio_result.get('success', False):
+        symbol_portfolio_result = portfolio_results.get(symbol)
+        if not isinstance(symbol_portfolio_result, dict) or not symbol_portfolio_result.get('success', False):
             return False
 
         data_results = results.get('data_collection', {})
