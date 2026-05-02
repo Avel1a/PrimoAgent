@@ -106,11 +106,7 @@ async def generate_trading_signal_with_prompts(
         if not api_key:
             print(f"No OpenAI API key available for {symbol}")
             return None
-            
-        # Set environment variable for LangChain
-        os.environ['OPENAI_API_KEY'] = api_key
-        
-        # Create LLM instance
+
         llm = ModelFactory.get_portfolio_manager_model()
         
         # Get current price from technical data
@@ -315,7 +311,7 @@ def read_historical_context(symbol: str, analysis_date: Optional[str] = None) ->
             return value is not None
     
     try:
-        csv_path = "output/csv/daily_analysis.csv"
+        csv_path = os.path.join(config.csv_output_path, "daily_analysis.csv")
         if not os.path.exists(csv_path):
             return []
         

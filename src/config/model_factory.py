@@ -31,9 +31,11 @@ class ModelFactory:
         if not model_name:
             raise ValueError("Model name is required in configuration")
         
-        base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
-        if base_url and not os.getenv("OPENAI_API_BASE"):
-            os.environ["OPENAI_API_BASE"] = base_url
+        # Bridge: LangChain ChatOpenAI reads OPENAI_API_BASE; .env uses OPENAI_BASE_URL
+        if not os.getenv("OPENAI_API_BASE"):
+            base_url = os.getenv("OPENAI_BASE_URL")
+            if base_url:
+                os.environ["OPENAI_API_BASE"] = base_url
         
         if provider == 'anthropic':
             return ChatAnthropic(

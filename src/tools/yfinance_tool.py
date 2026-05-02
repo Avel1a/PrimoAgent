@@ -1,13 +1,10 @@
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import os
-import time
+import asyncio
 import requests
 import pandas as pd
 from .utils import ToolResult
-from dotenv import load_dotenv
-
-load_dotenv()
 
 ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/query"
 
@@ -71,7 +68,7 @@ def _parse_crypto_timeseries(json_obj: Dict[str, Any]) -> pd.DataFrame:
     df = df.sort_values("Date").set_index("Date")
     return df
 
-def fetch_daily_dataframe(symbol: str, outputsize: str = "compact", market: str = "USD") -> pd.DataFrame:
+async def fetch_daily_dataframe(symbol: str, outputsize: str = "compact", market: str = "USD") -> pd.DataFrame:
     api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
     if not api_key:
         raise RuntimeError("Missing ALPHA_VANTAGE_API_KEY in environment")
@@ -99,7 +96,7 @@ def fetch_daily_dataframe(symbol: str, outputsize: str = "compact", market: str 
         print("Alpha Vantage Raw Response: <non-JSON payload>")
         return _empty_ohlcv_df()
     print("Alpha Vantage Raw Response:", data)
-    time.sleep(5)
+    await asyncio.sleep(5)
     if isinstance(data, dict) and (("Error Message" in data) or ("Information" in data) or ("Note" in data)):
         msg = data.get("Error Message") or data.get("Information") or data.get("Note")
         print("Alpha Vantage Error:", msg)
@@ -118,7 +115,7 @@ def fetch_daily_dataframe(symbol: str, outputsize: str = "compact", market: str 
 
 async def get_market_data(symbol: str, analysis_date: Optional[str] = None, period: str = "1y") -> ToolResult:
     try:
-        df = fetch_daily_dataframe(symbol, outputsize="compact")
+        df = await fetch_daily_dataframe(symbol, outputsize="compact")
         if df.empty:
             return ToolResult(success=False, error=f"No data available for {symbol}")
         if analysis_date:
@@ -186,7 +183,7 @@ async def get_company_info(symbol: str) -> ToolResult:
             print("Alpha Vantage Raw Response: <non-JSON payload>")
             return ToolResult(success=False, error=f"No company info available for {symbol}")
         print("Alpha Vantage Raw Response:", info)
-        time.sleep(5)
+        await asyncio.sleep(5)
         if (isinstance(info, dict) and (("Error Message" in info) or ("Information" in info) or ("Note" in info))):
             msg = info.get("Error Message") or info.get("Information") or info.get("Note")
             print("Alpha Vantage Error:", msg)

@@ -1,4 +1,3 @@
-import os
 import random
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -56,8 +55,7 @@ async def assess_significance(
         
         if not api_key:
             return 0.0
-            
-        os.environ['OPENAI_API_KEY'] = api_key
+
         llm = ModelFactory.get_assess_significance_model()
         
         prompt_template = get_news_significance_assessment_template()
@@ -125,8 +123,7 @@ async def create_enhanced_summary(title: str, original_summary: str, full_conten
         
         if not api_key:
             return None
-            
-        os.environ['OPENAI_API_KEY'] = api_key
+
         llm = ModelFactory.get_enhanced_summary_model()
         
         prompt_template = get_article_summarization_template()
@@ -263,8 +260,7 @@ async def extract_nlp_features(
         if not api_key:
             print(f"No OpenAI API key available for {symbol}")
             return None
-        
-        os.environ['OPENAI_API_KEY'] = api_key
+
         llm = ModelFactory.get_nlp_features_model()
         
         # Prepare prompts and data

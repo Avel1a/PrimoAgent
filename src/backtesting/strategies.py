@@ -1,31 +1,37 @@
+from __future__ import annotations
+
+from typing import Any, List, Optional
+
 import backtrader as bt
+import pandas as pd
 
 
 class PrimoAgentStrategy(bt.Strategy):
     """AI-driven trading strategy using PrimoAgent signals."""
 
-    params = (
+    params: tuple = (
         ("signals_df", None),
         ("printlog", False),
     )
 
-    def __init__(self):
+    signals_df: Optional[pd.DataFrame]
+    portfolio_values: List[float]
+    order_count: int
+
+    def __init__(self) -> None:
         self.signals_df = self.p.signals_df
         self.portfolio_values = []
         self.order_count = 0
 
-    def log(self, txt, dt=None):
-        """Log function for optional debug output."""
+    def log(self, txt: str, dt: Any = None) -> None:
         if self.p.printlog:
             dt = dt or self.datas[0].datetime.date(0)
             print(f"{dt.isoformat()}: {txt}")
 
-    def next(self):
-        """Main strategy logic executed on each bar."""
+    def next(self) -> None:
         current_date = self.data.datetime.date(0)
         current_price = self.data.close[0]
 
-        # Track portfolio value for plotting
         portfolio_value = self.broker.getvalue()
         self.portfolio_values.append(portfolio_value)
 
@@ -75,16 +81,21 @@ class PrimoAgentStrategy(bt.Strategy):
 class BuyAndHoldStrategy(bt.Strategy):
     """Simple buy and hold strategy for comparison."""
 
-    def __init__(self):
+    bought: bool
+    portfolio_values: List[float]
+    order_count: int
+
+    def __init__(self) -> None:
         self.bought = False
         self.portfolio_values = []
         self.order_count = 0
 
-    def next(self):
+    def next(self) -> None:
         portfolio_value = self.broker.getvalue()
         self.portfolio_values.append(portfolio_value)
 
         if not self.bought:
+            # Reserve ~1.2% for commission + slippage when buying with all cash
             commission_factor = 1.012
             safe_cash = self.broker.getcash() / commission_factor
             size = int(safe_cash / self.data.close[0])

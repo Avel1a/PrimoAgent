@@ -91,12 +91,23 @@ def create_workflow() -> StateGraph:
     workflow.add_node("news_intelligence", debug_news_intelligence_node)
     workflow.add_node("portfolio_manager", debug_portfolio_manager_node)
     
-    # Define linear flow
+    # Define conditional flow — errors skip to END, otherwise linear
     workflow.set_entry_point("data_collection")
-    workflow.add_edge("data_collection", "technical_analysis")
-    workflow.add_edge("technical_analysis", "news_intelligence")
-    workflow.add_edge("news_intelligence", "portfolio_manager")
-    workflow.add_edge("portfolio_manager", END)
+    workflow.add_conditional_edges("data_collection", should_continue, {
+        "technical_analysis": "technical_analysis",
+        END: END,
+    })
+    workflow.add_conditional_edges("technical_analysis", should_continue, {
+        "news_intelligence": "news_intelligence",
+        END: END,
+    })
+    workflow.add_conditional_edges("news_intelligence", should_continue, {
+        "portfolio_manager": "portfolio_manager",
+        END: END,
+    })
+    workflow.add_conditional_edges("portfolio_manager", should_continue, {
+        END: END,
+    })
     
     return workflow
 

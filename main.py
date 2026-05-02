@@ -1,6 +1,5 @@
 import asyncio
 import sys
-import time
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Tuple
@@ -149,9 +148,9 @@ async def main():
                 else:
                     failed_runs += 1
 
-                # Rate limit: sleep 6s between days to stay within Tiingo free tier (50 req/hr)
+                # Rate limit between days
                 if i < len(trading_dates):
-                    time.sleep(6)
+                    await asyncio.sleep(6)
                     
             except Exception as e:
                 print(f"{date} - Execution error: {e}")

@@ -1,13 +1,42 @@
 import os
 import glob
 import asyncio
-import time
 import finnhub
 import pandas as pd
 from datetime import datetime, timedelta, time as dt_time
 from typing import Dict, Any, Optional, Tuple, List
 from .utils import ToolResult
 from ..config.config import config
+
+# Cache for US market holidays (fetched once, reused across calls)
+_holidays_cache: Optional[Dict[int, List[str]]] = None
+
+
+def _get_cached_holidays() -> Dict[int, List[str]]:
+    """Fetch US market holidays from Finnhub and cache by year."""
+    global _holidays_cache
+    if _holidays_cache is not None:
+        return _holidays_cache
+    _holidays_cache = {}
+    client = _get_finnhub_client()
+    if client:
+        try:
+            holidays_data = client.market_holiday(exchange='US')
+            if hasattr(holidays_data, 'get') and holidays_data.get('data'):
+                for h in holidays_data['data']:
+                    d = h.get('date', '')
+                    if len(d) >= 4:
+                        y = int(d[:4])
+                        _holidays_cache.setdefault(y, []).append(d)
+            elif isinstance(holidays_data, list):
+                for h in holidays_data:
+                    d = h.get('date', '')
+                    if len(d) >= 4:
+                        y = int(d[:4])
+                        _holidays_cache.setdefault(y, []).append(d)
+        except Exception:
+            pass
+    return _holidays_cache
 
 def _get_finnhub_client():
     """Get Finnhub client with API key from config."""
@@ -24,47 +53,13 @@ async def _apply_rate_limiting():
     await asyncio.sleep(1.5)
 
 def is_trading_day(date_obj: datetime) -> bool:
-    """
-    Check if a given date is a trading day (Monday-Friday, excluding major holidays).
-    Uses Finnhub API to check for US market holidays.
-    
-    Args:
-        date_obj: DateTime object to check
-        
-    Returns:
-        bool: True if trading day, False if weekend or holiday
-    """
-    # Check if it's weekend
-    if date_obj.weekday() >= 5:  # Saturday=5, Sunday=6
+    """Check if a given date is a trading day (Mon-Fri, excluding holidays)."""
+    if date_obj.weekday() >= 5:
         return False
-    
-    # Check market holidays using Finnhub API
-    client = _get_finnhub_client()
-    if client:
-        try:
-            holidays = client.market_holiday(exchange='US')
-            # Sleep after external request to respect rate limits
-            time.sleep(1.5)
-            date_str = date_obj.strftime('%Y-%m-%d')
-            
-            # Check if date is in holiday list
-            if hasattr(holidays, 'get') and holidays.get('data'):
-                for holiday in holidays['data']:
-                    if holiday.get('date') == date_str:
-                        print(f"  {date_str} is market holiday: {holiday.get('holidayName', 'Unknown')}")
-                        return False
-            elif isinstance(holidays, list):
-                # Handle if holidays is directly a list
-                for holiday in holidays:
-                    if holiday.get('date') == date_str:
-                        print(f"  {date_str} is market holiday: {holiday.get('holidayName', 'Unknown')}")
-                        return False
-                        
-        except Exception as e:
-            print(f"  Warning: Could not check market holidays: {e}")
-            pass  # Fallback to basic weekend check
-    
-    return True
+    holidays = _get_cached_holidays()
+    date_str = date_obj.strftime('%Y-%m-%d')
+    year_holidays = holidays.get(date_obj.year, [])
+    return date_str not in year_holidays
 
 def get_market_status() -> dict:
     """
@@ -77,8 +72,6 @@ def get_market_status() -> dict:
     if client:
         try:
             status = client.market_status(exchange='US')
-            # Sleep after external request to respect rate limits
-            time.sleep(1.5)
             return {
                 'is_open': status.get('isOpen', False),
                 'session': status.get('session', 'unknown'),
