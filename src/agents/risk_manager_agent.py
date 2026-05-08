@@ -1,5 +1,6 @@
 from typing import Dict, Any, Optional
 import numpy as np
+import math
 import pandas as pd
 from ..workflows.state import AgentState
 from ..config import config
@@ -16,16 +17,168 @@ def _historical_var(returns: pd.Series, confidence: float = 0.95) -> float:
     return abs(float(np.percentile(returns, (1 - confidence) * 100)))
 
 
-def _recent_drawdown(historical_data: list) -> float:
-    """Current drawdown from the historical peak close."""
-    if not historical_data:
+def _compute_rolling_drawdown(closes: pd.Series, window: int = 60) -> tuple:
+    """Rolling drawdown from the peak within the last `window` days.
+
+    Returns (drawdown_pct, score) where score in [0, 1]: 1 = no drawdown, 0 = 30%+ drawdown.
+    """
+    if len(closes) < 2:
+        return 0.0, 1.0
+    recent = closes.tail(window) if len(closes) >= window else closes
+    peak = recent.max()
+    current = recent.iloc[-1]
+    if peak <= 0:
+        return 0.0, 1.0
+    dd_pct = (peak - current) / peak * 100
+    score = 1.0 - min(dd_pct / 30.0, 1.0)
+    return dd_pct, score
+
+
+def _compute_trend_score(closes: pd.Series) -> float:
+    """Compute trend strength score in [-1, 1] from SMA slope, MACD direction, and ADX.
+
+    Requires at least 40 bars. Falls back to 0.0 if insufficient data.
+    Uses close-to-close ranges as ADX proxy since we only have close prices.
+    """
+    n = len(closes)
+    if n < 40:
         return 0.0
-    closes = [float(d.get("close", 0)) for d in historical_data if d.get("close")]
-    if not closes:
+
+    # --- SMA20 slope ---
+    sma20 = closes.rolling(window=20).mean()
+    sma_recent = sma20.iloc[-1]
+    sma_past = sma20.iloc[-20]
+    if sma_past > 0:
+        slope = (sma_recent - sma_past) / sma_past
+    else:
+        slope = 0.0
+    slope_score = math.tanh(slope * 50)
+
+    # --- MACD direction ---
+    ema12 = closes.ewm(span=12, adjust=False).mean()
+    ema26 = closes.ewm(span=26, adjust=False).mean()
+    macd_line = ema12 - ema26
+    macd_signal = macd_line.ewm(span=9, adjust=False).mean()
+    macd_hist = macd_line - macd_signal
+    hist_val = macd_hist.iloc[-1]
+    macd_score = 1.0 if hist_val > 0 else -1.0
+    macd_score *= min(abs(hist_val) / 2.0, 1.0)
+
+    # --- ADX (close-to-close approximation) ---
+    high_est = closes.rolling(window=2).max()
+    low_est = closes.rolling(window=2).min()
+    prev_closes = closes.shift(1)
+    tr_approx = pd.concat([
+        high_est - low_est,
+        (high_est - prev_closes).abs(),
+        (low_est - prev_closes).abs()
+    ], axis=1).max(axis=1)
+    atr14 = tr_approx.ewm(span=14, adjust=False).mean()
+    up_move = closes.diff().clip(lower=0)
+    down_move = (-closes.diff()).clip(lower=0)
+    atr_val = atr14.iloc[-1]
+    if atr_val > 0:
+        di_plus = up_move.ewm(span=14, adjust=False).mean().iloc[-1] / atr_val * 100
+        di_minus = down_move.ewm(span=14, adjust=False).mean().iloc[-1] / atr_val * 100
+        denom = di_plus + di_minus
+        if denom > 0:
+            dx = abs(di_plus - di_minus) / denom * 100
+        else:
+            dx = 0.0
+    else:
+        dx = 0.0
+    # Smooth DX into ADX (simple EMA of DX values... we only have one value, use as-is)
+    adx_val = dx
+    adx_score = min(adx_val / 50.0, 1.0)
+    if slope < 0:
+        adx_score = -adx_score
+
+    return (slope_score + macd_score + adx_score) / 3.0
+
+
+def _compute_volatility_score(closes: pd.Series, atr_period: int = 14, lookback: int = 60) -> float:
+    """Compute volatility state score in [-1, 1]. High vol -> negative, low vol -> positive.
+
+    Uses ATR ratio: current ATR / mean ATR over lookback period.
+    Close-to-close range used as True Range proxy.
+    """
+    n = len(closes)
+    if n < atr_period + 2:
         return 0.0
-    peak = max(closes)
-    current = closes[-1]
-    return (peak - current) / peak * 100 if peak > 0 else 0.0
+
+    high_est = closes.rolling(window=2).max()
+    low_est = closes.rolling(window=2).min()
+    prev_closes = closes.shift(1)
+    tr = pd.concat([
+        high_est - low_est,
+        (high_est - prev_closes).abs(),
+        (low_est - prev_closes).abs()
+    ], axis=1).max(axis=1)
+    atr = tr.ewm(span=atr_period, adjust=False).mean()
+
+    if len(atr.dropna()) < lookback:
+        return 0.0
+
+    current_atr = atr.iloc[-1]
+    hist_atr_mean = atr.tail(lookback).mean()
+    if hist_atr_mean <= 0:
+        return 0.0
+
+    atr_ratio = current_atr / hist_atr_mean
+    score = 1.0 - (atr_ratio - 1.0)
+    return max(-1.0, min(1.0, score))
+
+
+def _compute_regime_score(closes: pd.Series) -> dict:
+    """Compute regime score and return regime metadata.
+
+    Returns dict with keys: regime_score, regime, rolling_dd_pct, trend_score, vol_score.
+    Falls back to Neutral if insufficient data or no regime config.
+    """
+    regime_cfg = config.risk_regime
+    if not regime_cfg:
+        return {
+            "regime_score": 0.0, "regime": "neutral",
+            "rolling_dd_pct": 0.0, "trend_score": 0.0, "vol_score": 0.0
+        }
+
+    window = regime_cfg.get("rolling_drawdown_window", 60)
+    atr_period = regime_cfg.get("volatility_atr_period", 14)
+    vol_lookback = regime_cfg.get("volatility_lookback", 60)
+    weights = regime_cfg.get("weights", {"trend": 0.4, "rolling_dd": 0.3, "volatility": 0.3})
+    bull_th = regime_cfg.get("bull_threshold", 0.3)
+    bear_th = regime_cfg.get("bear_threshold", -0.3)
+
+    if len(closes) < max(window, 40):
+        return {
+            "regime_score": 0.0, "regime": "neutral",
+            "rolling_dd_pct": 0.0, "trend_score": 0.0, "vol_score": 0.0
+        }
+
+    dd_pct, dd_score = _compute_rolling_drawdown(closes, window)
+    trend_score = _compute_trend_score(closes)
+    vol_score = _compute_volatility_score(closes, atr_period, vol_lookback)
+
+    regime_score = (
+        weights["trend"] * trend_score
+        + weights["rolling_dd"] * dd_score
+        + weights["volatility"] * vol_score
+    )
+
+    if regime_score > bull_th:
+        regime = "bull"
+    elif regime_score < bear_th:
+        regime = "bear"
+    else:
+        regime = "neutral"
+
+    return {
+        "regime_score": round(regime_score, 4),
+        "regime": regime,
+        "rolling_dd_pct": round(dd_pct, 2),
+        "trend_score": round(trend_score, 4),
+        "vol_score": round(vol_score, 4),
+    }
 
 
 async def risk_manager_agent_node(state: AgentState) -> AgentState:
