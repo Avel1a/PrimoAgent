@@ -1,4 +1,3 @@
-from typing import Dict, Any, Optional
 import numpy as np
 import math
 import pandas as pd
@@ -152,7 +151,7 @@ def _compute_regime_score(closes: pd.Series) -> dict:
     bull_th = regime_cfg.get("bull_threshold", 0.3)
     bear_th = regime_cfg.get("bear_threshold", -0.3)
 
-    min_bars = max(window + 1, 40, atr_period + 2)
+    min_bars = max(window, 40, atr_period + 2)
     if len(closes) < min_bars:
         return {
             "regime_score": 0.0, "regime": "neutral",
