@@ -17,7 +17,7 @@ def _historical_var(returns: pd.Series, confidence: float = 0.95) -> float:
     return abs(float(np.percentile(returns, (1 - confidence) * 100)))
 
 
-def _compute_rolling_drawdown(closes: pd.Series, window: int = 60) -> tuple:
+def _compute_rolling_drawdown(closes: pd.Series, window: int = 60) -> tuple[float, float]:
     """Rolling drawdown from the peak within the last `window` days.
 
     Returns (drawdown_pct, score) where score in [0, 1]: 1 = no drawdown, 0 = 30%+ drawdown.
@@ -32,6 +32,25 @@ def _compute_rolling_drawdown(closes: pd.Series, window: int = 60) -> tuple:
     dd_pct = (peak - current) / peak * 100
     score = 1.0 - min(dd_pct / 30.0, 1.0)
     return dd_pct, score
+
+
+def _compute_true_range(closes: pd.Series) -> pd.Series:
+    """Estimate true range from close prices only (close-to-close proxy)."""
+    high_est = closes.rolling(window=2).max()
+    low_est = closes.rolling(window=2).min()
+    prev = closes.shift(1)
+    return pd.concat([
+        high_est - low_est,
+        (high_est - prev).abs(),
+        (low_est - prev).abs()
+    ], axis=1).max(axis=1)
+
+
+def _compute_atr(closes: pd.Series, period: int = 14) -> pd.Series:
+    """Average True Range via EMA smoothing of true range estimates."""
+    tr = _compute_true_range(closes)
+    # Drop NaN from first row before EWM to avoid propagation issues
+    return tr.iloc[1:].ewm(span=period, adjust=False).mean()
 
 
 def _compute_trend_score(closes: pd.Series) -> float:
@@ -65,15 +84,7 @@ def _compute_trend_score(closes: pd.Series) -> float:
     macd_score *= min(abs(hist_val) / 2.0, 1.0)
 
     # --- ADX (close-to-close approximation) ---
-    high_est = closes.rolling(window=2).max()
-    low_est = closes.rolling(window=2).min()
-    prev_closes = closes.shift(1)
-    tr_approx = pd.concat([
-        high_est - low_est,
-        (high_est - prev_closes).abs(),
-        (low_est - prev_closes).abs()
-    ], axis=1).max(axis=1)
-    atr14 = tr_approx.ewm(span=14, adjust=False).mean()
+    atr14 = _compute_atr(closes, 14)
     up_move = closes.diff().clip(lower=0)
     down_move = (-closes.diff()).clip(lower=0)
     atr_val = atr14.iloc[-1]
@@ -106,15 +117,7 @@ def _compute_volatility_score(closes: pd.Series, atr_period: int = 14, lookback:
     if n < atr_period + 2:
         return 0.0
 
-    high_est = closes.rolling(window=2).max()
-    low_est = closes.rolling(window=2).min()
-    prev_closes = closes.shift(1)
-    tr = pd.concat([
-        high_est - low_est,
-        (high_est - prev_closes).abs(),
-        (low_est - prev_closes).abs()
-    ], axis=1).max(axis=1)
-    atr = tr.ewm(span=atr_period, adjust=False).mean()
+    atr = _compute_atr(closes, atr_period)
 
     if len(atr.dropna()) < lookback:
         return 0.0
@@ -149,7 +152,8 @@ def _compute_regime_score(closes: pd.Series) -> dict:
     bull_th = regime_cfg.get("bull_threshold", 0.3)
     bear_th = regime_cfg.get("bear_threshold", -0.3)
 
-    if len(closes) < max(window, 40):
+    min_bars = max(window + 1, 40, atr_period + 2)
+    if len(closes) < min_bars:
         return {
             "regime_score": 0.0, "regime": "neutral",
             "rolling_dd_pct": 0.0, "trend_score": 0.0, "vol_score": 0.0
@@ -164,6 +168,7 @@ def _compute_regime_score(closes: pd.Series) -> dict:
         + weights["rolling_dd"] * dd_score
         + weights["volatility"] * vol_score
     )
+    regime_score = max(-1.0, min(1.0, regime_score))
 
     if regime_score > bull_th:
         regime = "bull"
