@@ -113,7 +113,13 @@ def save_workflow_to_csv(workflow_result: Dict[str, Any], date: str) -> bool:
         nlp_features = {}
         if news_results and news_results.get('success'):
             nlp_features = news_results.get('nlp_features', {})
-        
+
+        # Get risk manager results for regime info
+        risk_results = results.get('risk_manager', {})
+        risk_metrics = risk_results.get('risk_metrics', {}) if isinstance(risk_results, dict) else {}
+        regime = risk_metrics.get('regime', 'neutral')
+        regime_score = risk_metrics.get('regime_score', 0.0)
+
         # Create comprehensive CSV data with all indicators and NLP features
         # Apply 2-decimal formatting ONLY to technical/financial fields
         csv_data = {
@@ -148,7 +154,9 @@ def save_workflow_to_csv(workflow_result: Dict[str, Any], date: str) -> bool:
             'trend_direction': nlp_features.get('trend_direction'),
             'earnings_impact': nlp_features.get('earnings_impact'),
             'investor_confidence': nlp_features.get('investor_confidence'),
-            'risk_profile_change': nlp_features.get('risk_profile_change')
+            'risk_profile_change': nlp_features.get('risk_profile_change'),
+            'regime': regime,
+            'regime_score': regime_score,
         }
         
         # Create CSV file path - SINGLE FILE for all dates
@@ -261,6 +269,11 @@ def save_workflow_to_symbol_csv(workflow_result: Dict[str, Any], date: str, data
         news_results = results.get('news_intelligence', {})
         nlp_features = news_results.get('nlp_features', {}) if news_results and news_results.get('success') else {}
 
+        risk_results = results.get('risk_manager', {})
+        risk_metrics = risk_results.get('risk_metrics', {}) if isinstance(risk_results, dict) else {}
+        regime = risk_metrics.get('regime', 'neutral')
+        regime_score = risk_metrics.get('regime_score', 0.0)
+
         csv_row = {
             'date': date,
             'symbol': symbol,
@@ -285,6 +298,8 @@ def save_workflow_to_symbol_csv(workflow_result: Dict[str, Any], date: str, data
             'earnings_impact': nlp_features.get('earnings_impact'),
             'investor_confidence': nlp_features.get('investor_confidence'),
             'risk_profile_change': nlp_features.get('risk_profile_change'),
+            'regime': regime,
+            'regime_score': regime_score,
         }
 
         # Ensure directory and file path
