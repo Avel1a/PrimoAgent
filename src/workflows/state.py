@@ -17,6 +17,7 @@ class AgentState(TypedDict):
     technical_analysis_results: Optional[Dict[str, Any]]
     news_intelligence_results: Optional[Dict[str, Any]]
     portfolio_manager_results: Optional[Dict[str, Any]]
+    risk_manager_results: Optional[Dict[str, Any]]
 
     # Cross-day cache
     _cached_company_info: Optional[Dict[str, Any]]
@@ -40,6 +41,7 @@ def create_initial_state(session_id: str, symbols: List[str], analysis_date: Opt
         technical_analysis_results=None,
         news_intelligence_results=None,
         portfolio_manager_results=None,
+        risk_manager_results=None,
         _cached_company_info=None,
         error=None
     )
