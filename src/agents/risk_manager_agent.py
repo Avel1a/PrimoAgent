@@ -187,14 +187,15 @@ def _compute_regime_score(closes: pd.Series) -> dict:
 
 
 async def risk_manager_agent_node(state: AgentState) -> AgentState:
-    """
-    Validate and adjust portfolio manager output against risk constraints.
+    """Validate and adjust portfolio manager output against adaptive risk constraints.
 
-    Constraints enforced:
-    1. Max position size capped by VaR: position_value ≤ max_daily_var_pct * portfolio
-    2. Max single-position allocation: position_size ≤ max_position_pct
-    3. Cash reserve: at least min_cash_reserve_pct stays uninvested
-    4. Stop-loss signal override: if open drawdown exceeds max_drawdown_pct, force HOLD
+    Detection order:
+    1. Compute regime (Bear/Neutral/Bull) from multi-signal detector
+    2. Get regime-specific risk parameters
+    3. Drawdown guard: force HOLD if rolling drawdown exceeds regime threshold
+    4. VaR-based position capping with regime multiplier
+    5. Max single-position cap (regime-specific)
+    6. Cash reserve (regime-specific)
     """
     try:
         symbol = state["symbols"][0] if state["symbols"] else "UNKNOWN"
@@ -211,64 +212,98 @@ async def risk_manager_agent_node(state: AgentState) -> AgentState:
             return state
 
         signal = symbol_data.get("trading_signal", "HOLD")
-        confidence = symbol_data.get("confidence_level", 0.5)
         position_size = symbol_data.get("position_size", 10)
 
-        # --- Extract historical data for VaR ---
+        # --- Extract historical data ---
         dc_results = state.get("data_collection_results", {})
         market_data = dc_results.get("market_data", {}) or {}
         historical = market_data.get("historical_data", []) or []
 
-        var_value = 0.0
-        drawdown = 0.0
-
+        # --- Compute regime ---
+        regime_info = {
+            "regime_score": 0.0, "regime": "neutral",
+            "rolling_dd_pct": 0.0, "trend_score": 0.0, "vol_score": 0.0,
+        }
+        closes_full = pd.Series(dtype=float)
         if historical:
-            closes = pd.Series([float(d["close"]) for d in historical if d.get("close")])
-            if len(closes) >= 20:
-                returns = _daily_returns(closes).tail(config.risk_var_lookback_days)
-                var_value = _historical_var(returns, config.risk_var_confidence)
-                drawdown = _recent_drawdown(historical)
+            closes_full = pd.Series(
+                [float(d["close"]) for d in historical if d.get("close")]
+            )
+            if len(closes_full) >= 60:
+                regime_info = _compute_regime_score(closes_full)
 
-        # --- Risk checks ---
+        regime = regime_info["regime"]
+        regime_cfg = config.risk_regime
+        params = regime_cfg.get(regime, regime_cfg.get("neutral", {}))
+        max_dd = params.get("max_drawdown_pct", 20)
+        max_pos = int(params.get("max_position_pct", 25))
+        var_mult = params.get("var_multiplier", 1.0)
+        cash_reserve = int(params.get("cash_reserve_pct", 10))
+        rolling_dd = regime_info["rolling_dd_pct"]
 
-        # 1. Drawdown guard: if portfolio drawdown exceeds limit, force HOLD
-        if drawdown > config.risk_max_drawdown_pct:
+        # --- Compute VaR (unchanged methodology) ---
+        var_value = 0.0
+        if len(closes_full) >= 20:
+            returns = _daily_returns(closes_full).tail(config.risk_var_lookback_days)
+            var_value = _historical_var(returns, config.risk_var_confidence)
+
+        # --- 1. Drawdown guard (regime-aware) ---
+        force_hold = False
+        override_reason = ""
+        if regime == "bear" and rolling_dd > max_dd:
+            force_hold = True
+            override_reason = (
+                f"Bear regime: drawdown {rolling_dd:.1f}% > {max_dd}%"
+            )
+        elif regime == "neutral" and rolling_dd > max_dd:
+            force_hold = True
+            override_reason = (
+                f"Neutral regime: drawdown {rolling_dd:.1f}% > {max_dd}%"
+            )
+        elif regime == "bull":
+            if rolling_dd > max_dd and regime_info["trend_score"] < 0:
+                force_hold = True
+                override_reason = (
+                    f"Bull regime: drawdown {rolling_dd:.1f}% > {max_dd}% "
+                    f"and trend {regime_info['trend_score']:.2f} < 0"
+                )
+
+        if force_hold:
             symbol_data["trading_signal"] = "HOLD"
             symbol_data["confidence_level"] = 0.0
             symbol_data["position_size"] = 0
             symbol_data["risk_adjusted"] = True
             symbol_data["risk_metrics"] = {
                 "var_daily_pct": round(var_value * 100, 2),
-                "drawdown_pct": round(drawdown, 2),
-                "max_drawdown_limit_pct": config.risk_max_drawdown_pct,
+                "drawdown_pct": round(rolling_dd, 2),
+                "max_drawdown_limit_pct": max_dd,
+                "regime": regime,
+                "regime_score": regime_info["regime_score"],
                 "override": "max_drawdown_breached",
             }
             state["portfolio_manager_results"][symbol] = symbol_data
             state["risk_manager_results"] = {
                 "symbol": symbol,
                 "action": "override_to_hold",
-                "reason": f"Drawdown {drawdown:.1f}% exceeds limit {config.risk_max_drawdown_pct}%",
+                "reason": override_reason,
                 "risk_metrics": symbol_data["risk_metrics"],
             }
             state["current_step"] = "risk_management_complete"
             return state
 
-        # 2. VaR-based position capping
+        # --- 2. VaR-based position capping with regime multiplier ---
         if var_value > 0 and signal == "BUY":
-            # Max position value = (max_daily_var_pct / var) * portfolio_pct
-            # If daily VaR is 2% and max allowed is 2%, we allow full position.
-            # If daily VaR is 4% and max allowed is 2%, we cap at 50% of intended.
-            risk_ratio = config.risk_max_daily_var_pct / max(var_value * 100, 0.01)
+            effective_var_limit = config.risk_max_daily_var_pct * var_mult
+            risk_ratio = effective_var_limit / max(var_value * 100, 0.01)
             var_capped_size = int(position_size * min(risk_ratio, 1.0))
-            # Round down to nearest 10
             var_capped_size = max(10, (var_capped_size // 10) * 10)
             position_size = min(position_size, var_capped_size)
 
-        # 3. Max single-position cap
-        position_size = min(position_size, int(config.risk_max_position_pct))
+        # --- 3. Max single-position cap (regime-specific) ---
+        position_size = min(position_size, max_pos)
 
-        # 4. Cash reserve: if position uses more than (100 - cash_reserve), cap it
-        max_allocated = 100 - int(config.risk_min_cash_reserve_pct)
+        # --- 4. Cash reserve (regime-specific) ---
+        max_allocated = 100 - cash_reserve
         position_size = min(position_size, max_allocated)
 
         # Round to nearest 10, floor at 10
@@ -277,9 +312,11 @@ async def risk_manager_agent_node(state: AgentState) -> AgentState:
         # --- Apply adjustments ---
         risk_metrics = {
             "var_daily_pct": round(var_value * 100, 2),
-            "drawdown_pct": round(drawdown, 2),
-            "max_position_pct_limit": config.risk_max_position_pct,
-            "min_cash_reserve_pct": config.risk_min_cash_reserve_pct,
+            "drawdown_pct": round(rolling_dd, 2),
+            "max_position_pct_limit": max_pos,
+            "min_cash_reserve_pct": cash_reserve,
+            "regime": regime,
+            "regime_score": regime_info["regime_score"],
             "override": "none",
         }
 
@@ -291,13 +328,16 @@ async def risk_manager_agent_node(state: AgentState) -> AgentState:
             risk_metrics["original_position_size"] = original_size
         else:
             symbol_data["risk_adjusted"] = False
-            symbol_data["risk_metrics"] = risk_metrics
 
+        symbol_data["risk_metrics"] = risk_metrics
         state["portfolio_manager_results"][symbol] = symbol_data
         state["risk_manager_results"] = {
             "symbol": symbol,
             "action": "validated",
-            "reason": f"Position size {position_size}% passes all risk checks",
+            "reason": (
+                f"Position size {position_size}% passes all risk checks "
+                f"(regime: {regime})"
+            ),
             "risk_metrics": risk_metrics,
         }
         state["current_step"] = "risk_management_complete"
