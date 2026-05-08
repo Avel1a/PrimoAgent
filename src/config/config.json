@@ -57,7 +57,38 @@
     "max_daily_var_pct": 2.0,
     "var_confidence": 0.95,
     "var_lookback_days": 252,
-    "min_cash_reserve_pct": 10
+    "min_cash_reserve_pct": 10,
+    "regime": {
+      "rolling_drawdown_window": 60,
+      "trend_sma_period": 20,
+      "volatility_atr_period": 14,
+      "volatility_lookback": 60,
+      "weights": {
+        "trend": 0.4,
+        "rolling_dd": 0.3,
+        "volatility": 0.3
+      },
+      "bull_threshold": 0.3,
+      "bear_threshold": -0.3,
+      "bear": {
+        "max_drawdown_pct": 12,
+        "max_position_pct": 10,
+        "var_multiplier": 0.5,
+        "cash_reserve_pct": 20
+      },
+      "neutral": {
+        "max_drawdown_pct": 20,
+        "max_position_pct": 25,
+        "var_multiplier": 1.0,
+        "cash_reserve_pct": 10
+      },
+      "bull": {
+        "max_drawdown_pct": 30,
+        "max_position_pct": 30,
+        "var_multiplier": 1.5,
+        "cash_reserve_pct": 5
+      }
+    }
   },
   "backtesting": {
     "initial_cash": 100000,
