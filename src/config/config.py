@@ -146,6 +146,12 @@ class Config:
     def risk_min_cash_reserve_pct(self) -> float:
         return self._config_data['risk']['min_cash_reserve_pct']
 
+    @property
+    def risk_regime(self) -> dict:
+        """Get risk regime configuration for adaptive risk management."""
+        risk = self._config_data.get('risk', {})
+        return risk.get('regime', {})
+
     # Backtesting Configuration
     @property
     def backtest_initial_cash(self) -> float:
