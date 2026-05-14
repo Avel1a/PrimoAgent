@@ -235,7 +235,8 @@ async def risk_manager_agent_node(state: AgentState) -> AgentState:
         regime_cfg = config.risk_regime
         params = regime_cfg.get(regime, regime_cfg.get("neutral", {}))
         max_dd = params.get("max_drawdown_pct", 20)
-        max_pos = int(params.get("max_position_pct", 25))
+        pos_min = int(params.get("position_min", 10))
+        pos_max = int(params.get("position_max", 100))
         var_mult = params.get("var_multiplier", 1.0)
         cash_reserve = int(params.get("cash_reserve_pct", 10))
         rolling_dd = regime_info["rolling_dd_pct"]
@@ -299,8 +300,22 @@ async def risk_manager_agent_node(state: AgentState) -> AgentState:
             var_capped_size = max(10, (var_capped_size // 10) * 10)
             position_size = min(position_size, var_capped_size)
 
-        # --- 3. Max single-position cap (regime-specific) ---
-        position_size = min(position_size, max_pos)
+        # --- 3. Regime-scaled position cap ---
+        # Map regime_score to [pos_min, pos_max] linearly within the regime's range
+        regime_score = regime_info["regime_score"]
+        bear_th = regime_cfg.get("bear_threshold", -0.3)
+        bull_th = regime_cfg.get("bull_threshold", 0.3)
+        if regime == "bull":
+            t = (regime_score - bull_th) / (1.0 - bull_th)
+            regime_cap = round(pos_min + t * (pos_max - pos_min))
+        elif regime == "bear":
+            t = (regime_score - (-1.0)) / (bear_th - (-1.0))
+            regime_cap = round(pos_min + t * (pos_max - pos_min))
+        else:  # neutral
+            t = (regime_score - bear_th) / (bull_th - bear_th)
+            regime_cap = round(pos_min + t * (pos_max - pos_min))
+        regime_cap = max(pos_min, min(pos_max, (regime_cap // 10) * 10))
+        position_size = min(position_size, regime_cap)
 
         # --- 4. Cash reserve (regime-specific) ---
         max_allocated = 100 - cash_reserve
@@ -313,7 +328,8 @@ async def risk_manager_agent_node(state: AgentState) -> AgentState:
         risk_metrics = {
             "var_daily_pct": round(var_value * 100, 2),
             "drawdown_pct": round(rolling_dd, 2),
-            "max_position_pct_limit": max_pos,
+            "regime_position_range": f"{pos_min}-{pos_max}",
+            "regime_position_cap": regime_cap,
             "min_cash_reserve_pct": cash_reserve,
             "regime": regime,
             "regime_score": regime_info["regime_score"],
