@@ -11,7 +11,8 @@ from ..prompts.portfolio_manager import (
     get_structured_output_parser,
     format_basic_financials,
     format_technical_indicators,
-    format_historical_context
+    format_historical_context,
+    format_regime_context,
 )
 from ..prompts.shared import extract_company_info
 
@@ -155,7 +156,19 @@ async def generate_trading_signal_with_prompts(
         # Read historical context from CSV file if exists
         historical_data = read_historical_context(symbol, analysis_date)
         historical_context = format_historical_context(historical_data)
-        
+
+        # Compute market regime from close prices (lazy import to avoid circular dependency)
+        regime_info = {"regime": "neutral", "regime_score": 0.0, "trend_score": 0.0, "vol_score": 0.0, "rolling_dd_pct": 0.0}
+        dc_results = technical_data.get("data_collection_results", {}) or {}
+        market_data = dc_results.get("market_data", {}) or {}
+        historical_prices = market_data.get("historical_data", []) or []
+        if historical_prices:
+            closes = pd.Series([float(d["close"]) for d in historical_prices if d.get("close")])
+            if len(closes) >= 60:
+                from .risk_manager_agent import _compute_regime_score
+                regime_info = _compute_regime_score(closes)
+        regime_context = format_regime_context(regime_info)
+
         # Prepare prompt input with company context and trading data
         prompt_input = {
             'symbol': symbol,
@@ -186,7 +199,8 @@ async def generate_trading_signal_with_prompts(
             'investor_confidence': nlp_features.get('investor_confidence', 'N/A'),
             'risk_profile_change': nlp_features.get('risk_profile_change', 'N/A'),
             
-            # Historical context
+            # Market regime & historical context
+            'regime_context': regime_context,
             'historical_context': historical_context,
             
             # Format instructions for structured output

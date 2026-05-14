@@ -254,10 +254,11 @@ async def risk_manager_agent_node(state: AgentState) -> AgentState:
             override_reason = (
                 f"Bear regime: drawdown {rolling_dd:.1f}% > {max_dd}%"
             )
-        elif regime == "neutral" and rolling_dd > max_dd:
+        elif regime == "neutral" and rolling_dd > max_dd and regime_info["trend_score"] < 0:
             force_hold = True
             override_reason = (
-                f"Neutral regime: drawdown {rolling_dd:.1f}% > {max_dd}%"
+                f"Neutral regime: drawdown {rolling_dd:.1f}% > {max_dd}% "
+                f"and trend {regime_info['trend_score']:.2f} < 0"
             )
         elif regime == "bull":
             if rolling_dd > max_dd and regime_info["trend_score"] < 0:

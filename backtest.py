@@ -13,6 +13,7 @@ from src.backtesting import (
 from src.backtesting.data import load_stock_data, load_all_data, list_available_stocks, load_spy_data, compute_equal_weight_benchmark
 from src.backtesting.plotting import plot_single_stock, plot_returns_bar_chart
 from src.backtesting.reporting import generate_markdown_report
+from src.config import config
 
 
 def _prompt(prompt: str) -> str:
@@ -187,7 +188,7 @@ def run_single_interactive(data_dir: Path, output_dir: Path) -> int:
     print("=" * 60)
 
     primo_results, primo_cerebro = run_backtest(
-        ohlc_data, PrimoAgentStrategy, "PrimoAgent", signals_df=signals_df, printlog=printlog
+        ohlc_data, PrimoAgentStrategy, "PrimoAgent", signals_df=signals_df, printlog=printlog, trailing_stop_pct=config.risk_stop_loss_pct, take_profit_pct=config.risk_take_profit_pct
     )
     buyhold_results, buyhold_cerebro = run_backtest(
         ohlc_data, BuyAndHoldStrategy, "Buy & Hold"
@@ -269,7 +270,7 @@ def run_multi_interactive(data_dir: Path, output_dir: Path) -> int:
         try:
             all_ohlc[symbol] = ohlc_data.copy()
             primo_results, primo_cerebro = run_backtest(
-                ohlc_data, PrimoAgentStrategy, f"{symbol} PrimoAgent", signals_df=signals_df, printlog=printlog
+                ohlc_data, PrimoAgentStrategy, f"{symbol} PrimoAgent", signals_df=signals_df, printlog=printlog, trailing_stop_pct=config.risk_stop_loss_pct, take_profit_pct=config.risk_take_profit_pct
             )
             buyhold_results, buyhold_cerebro = run_backtest(
                 ohlc_data, BuyAndHoldStrategy, f"{symbol} Buy & Hold"

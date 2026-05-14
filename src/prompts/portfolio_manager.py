@@ -21,6 +21,9 @@ Symbol: {symbol} | Company: {company_name} | Industry: {industry}
 Exchange: {exchange} | Market Cap: {market_cap}
 Current Date: {analysis_date} | Current Price: ${current_price}
 
+[MARKET REGIME]
+{regime_context}
+
 [MARKET DATA ANALYSIS]
 
 Technical Indicators (Price Momentum & Market Sentiment):
@@ -124,6 +127,9 @@ HOLD Guidelines:
 Position Sizing Rules:
 - Base percentage: 10-100% in steps of 10%
 - Higher conviction and stronger expected moves warrant larger positions
+- Bull regime: favor larger positions (40-80%), be more aggressive on BUY signals
+- Bear regime: favor smaller positions (10-30%), be more cautious, prefer HOLD
+- Neutral regime: moderate positions (20-50%), balanced approach
 - Reduce position size by 50% when technical and news signals conflict
 - Maximum 30% position size when RSI < 30 or RSI > 70 (extreme conditions)
 - Maximum 40% position size when MACD histogram opposite to news sentiment
@@ -358,6 +364,30 @@ def format_technical_indicators(technical_data: Dict[str, Any], current_price: f
         "adx_interpretation": adx_data_formatted,
         "cci_interpretation": cci_data_formatted
     }
+
+
+def format_regime_context(regime_info: dict) -> str:
+    """Format market regime information for the Portfolio Manager prompt."""
+    if not regime_info or regime_info.get("regime") == "neutral" and regime_info.get("regime_score", 0) == 0:
+        return "Market regime data not available - use default risk assumptions."
+
+    regime = regime_info.get("regime", "neutral").upper()
+    score = regime_info.get("regime_score", 0)
+    trend = regime_info.get("trend_score", 0)
+    vol = regime_info.get("vol_score", 0)
+    dd = regime_info.get("rolling_dd_pct", 0)
+
+    regime_desc = {
+        "bull": "Strong uptrend - be aggressive on BUY, larger positions recommended",
+        "bear": "Downtrend or high risk - prioritize capital preservation, prefer HOLD/SELL",
+        "neutral": "Sideways/uncertain - balanced approach, moderate positions",
+    }.get(regime_info.get("regime"), "Unknown")
+
+    return (
+        f"Regime: {regime} (score: {score:.2f})\n"
+        f"  Trend: {trend:+.2f} | Volatility: {vol:+.2f} | Drawdown: {dd:.1f}%\n"
+        f"  Guidance: {regime_desc}"
+    )
 
 
 def format_historical_context(historical_data: List[Dict[str, Any]]) -> str:

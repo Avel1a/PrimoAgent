@@ -71,22 +71,22 @@
       "bull_threshold": 0.3,
       "bear_threshold": -0.3,
       "bear": {
-        "max_drawdown_pct": 12,
-        "max_position_pct": 10,
+        "max_drawdown_pct": 15,
+        "max_position_pct": 15,
         "var_multiplier": 0.5,
-        "cash_reserve_pct": 20
+        "cash_reserve_pct": 15
       },
       "neutral": {
         "max_drawdown_pct": 20,
-        "max_position_pct": 25,
-        "var_multiplier": 1.0,
+        "max_position_pct": 30,
+        "var_multiplier": 1.2,
         "cash_reserve_pct": 10
       },
       "bull": {
         "max_drawdown_pct": 30,
-        "max_position_pct": 30,
-        "var_multiplier": 1.5,
-        "cash_reserve_pct": 5
+        "max_position_pct": 40,
+        "var_multiplier": 2.0,
+        "cash_reserve_pct": 0
       }
     }
   },
