@@ -20,37 +20,17 @@ python main.py
 # Run analysis — non-interactive (env vars)
 PRIMO_SYMBOL=AAPL PRIMO_START_DATE=2026-03-02 PRIMO_END_DATE=2026-04-30 python main.py
 
-# Batch analysis across multiple stocks
-python run_batch.py
-
 # Run backtest (interactive: 1=single, 2=multi-stock)
 python backtest.py
-
-# Non-interactive single-stock backtest (run after analysis pipeline)
-python -c "
-from src.backtesting import run_backtest, PrimoAgentStrategy, BuyAndHoldStrategy
-from src.backtesting.data import load_stock_data
-from src.backtesting.plotting import plot_single_stock
-ohlc, sig = load_stock_data('TSLA', 'output/csv')
-primo, cerebro = run_backtest(ohlc, PrimoAgentStrategy, 'PrimoAgent', signals_df=sig)
-bh, _ = run_backtest(ohlc, BuyAndHoldStrategy, 'Buy & Hold')
-print(f\"PrimoAgent: {primo['Cumulative Return [%]']:.2f}% | Buy&Hold: {bh['Cumulative Return [%]']:.2f}%\")
-plot_single_stock('TSLA', cerebro, _, 'output/backtests')
-"
-
-# Batch backtest (3 stocks × auto-backtest)
-run_batch_backtest.bat
-
-# 一键分析+回测模板 — 改 run_template.py 顶部 STOCKS 列表然后运行
-#   Step 1: 串行跑每只股票的 5-Agent 分析流水线（避免 API 限流）
-#   Step 2: 多股票回测，产出 CSV + PNG + MD 报告
-python run_template.py
 
 # 市场状态对比测试 — 牛/熊/震荡三组 (分析 + 回测全自动)
 python run_batch_market_regime.py
 
-# 单股票回测辅助脚本 (由 run_batch_market_regime.py 自动调用，也可单独使用)
+# 单股票回测
 python _backtest_single.py AAPL
+
+# 非交互式多股票综合回测 (产出对比报告)
+python run_backtest_quick.py
 ```
 
 No lint, test, or type-check scripts are configured in this project.
