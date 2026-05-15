@@ -40,6 +40,17 @@ plot_single_stock('TSLA', cerebro, _, 'output/backtests')
 
 # Batch backtest (3 stocks × auto-backtest)
 run_batch_backtest.bat
+
+# 一键分析+回测模板 — 改 run_template.py 顶部 STOCKS 列表然后运行
+#   Step 1: 串行跑每只股票的 5-Agent 分析流水线（避免 API 限流）
+#   Step 2: 多股票回测，产出 CSV + PNG + MD 报告
+python run_template.py
+
+# 市场状态对比测试 — 牛/熊/震荡三组 (分析 + 回测全自动)
+python run_batch_market_regime.py
+
+# 单股票回测辅助脚本 (由 run_batch_market_regime.py 自动调用，也可单独使用)
+python _backtest_single.py AAPL
 ```
 
 No lint, test, or type-check scripts are configured in this project.
@@ -107,6 +118,20 @@ Backtesting reads per-symbol CSVs from `output/csv/daily_analysis_{SYMBOL}.csv` 
 - `strategies.py`: `PrimoAgentStrategy` executes BUY/SELL signals day-by-day; `BuyAndHoldStrategy` buys once at start
 - `data.py`: Loads OHLCV via yfinance, signals from CSVs; SPY and equal-weight benchmarks
 - `plotting.py` / `reporting.py`: Output charts and markdown reports
+
+### 市场状态对比测试
+
+`run_batch_market_regime.py` 按牛/熊/震荡三组跑 6 只股票的完整分析+回测。修改 `GROUPS` 列表即可换股票和时间段：
+
+```python
+GROUPS = [
+    ("NVDA", "2024-01-02", "2024-03-08", "Bull"),     # 牛市组
+    ("TSLA", "2022-09-01", "2022-11-10", "Bear"),     # 熊市组
+    ("JNJ",  "2023-06-01", "2023-08-15", "Sideways"), # 震荡组
+]
+```
+
+每组可以放多只股票，`_backtest_single.py` 是单股票回测辅助脚本，也可单独调用 `python _backtest_single.py <SYMBOL>`。
 
 ### Output Artifacts
 

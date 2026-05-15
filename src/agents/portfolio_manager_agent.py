@@ -44,16 +44,14 @@ async def analyze_portfolio(
                 'error': 'No valid technical analysis data provided'
             }
         
-        if not news_data or not news_data.get('success'):
-            return {
-                'symbol': symbol,
-                'success': False,
-                'error': 'No valid news intelligence data provided'
-            }
-            
+        # News data is optional — historical backtests won't have Finnhub coverage.
+        # When missing, use an empty dict so the LLM still gets technical + regime context.
+        if news_data is None or not news_data.get('success'):
+            news_data = {'success': False, 'nlp_features': {}}
+
         # Correctly pass only the relevant data
         trading_decision = await generate_trading_signal_with_prompts(
-            symbol, 
+            symbol,
             technical_data,
             news_data,
             analysis_date

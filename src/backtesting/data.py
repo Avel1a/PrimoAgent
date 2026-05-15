@@ -165,8 +165,24 @@ def compute_equal_weight_benchmark(all_ohlc: Dict[str, pd.DataFrame], start_date
     return portfolio_series, metrics
 
 
+def _load_from_tiingo_cache(symbol: str) -> Optional[pd.DataFrame]:
+    """从 Tiingo Parquet 缓存加载 OHLC 数据 (5 年日线)。"""
+    cache_path = Path("output/cache/tiingo") / f"{symbol.upper()}_ohlcv.parquet"
+    if not cache_path.exists():
+        return None
+    try:
+        df = pd.read_parquet(cache_path)
+        if "date" in df.columns:
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.rename(columns={"date": "Date"}).set_index("Date")
+        return df
+    except Exception as e:
+        print(f"Tiingo cache load failed for {symbol}: {e}")
+        return None
+
+
 def load_stock_data(symbol: str, data_dir: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
-    """Load AI signals CSV for symbol and fetch OHLC data via yfinance.
+    """加载信号 CSV 并获取 OHLC 数据 (优先 Tiingo 缓存，回退 Alpha Vantage)。
 
     Returns (ohlc_df, signals_df) or (None, None) on error.
     """
@@ -184,7 +200,10 @@ def load_stock_data(symbol: str, data_dir: str) -> Tuple[Optional[pd.DataFrame],
     start_date = signals_df["date"].min()
     end_date = signals_df["date"].max()
 
-    df = _fetch_sync(symbol)
+    df = _load_from_tiingo_cache(symbol)
+    if df is None:
+        df = _fetch_sync(symbol)
+
     ohlc_data = df[(df.index.date >= start_date.date()) & (df.index.date <= (end_date + pd.Timedelta(days=0)).date())]
 
     if ohlc_data.empty:
@@ -210,7 +229,10 @@ def load_all_data(data_dir: str) -> Dict[str, Tuple[pd.DataFrame, pd.DataFrame]]
             start_date = signals_df["date"].min()
             end_date = signals_df["date"].max()
 
-            df = _fetch_sync(symbol)
+            df = _load_from_tiingo_cache(symbol)
+            if df is None:
+                df = _fetch_sync(symbol)
+
             ohlc_data = df[(df.index.date >= start_date.date()) & (df.index.date <= (end_date + pd.Timedelta(days=0)).date())]
             if not ohlc_data.empty:
                 all_data[symbol] = (ohlc_data.reset_index(), signals_df)

@@ -153,7 +153,7 @@ async def get_market_data(symbol: str, analysis_date: Optional[str] = None, peri
 
             new_df = pd.DataFrame(data)
             if not new_df.empty:
-                new_df["date"] = pd.to_datetime(new_df["date"])
+                new_df["date"] = pd.to_datetime(new_df["date"]).dt.tz_localize(None)
                 new_df.set_index("date", inplace=True)
                 new_df.sort_index(inplace=True)
 

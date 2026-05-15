@@ -67,12 +67,12 @@ async def debug_parallel_analysis_node(state: AgentState) -> AgentState:
     state['technical_analysis_results'] = tech_result.get('technical_analysis_results')
     state['news_intelligence_results'] = news_result.get('news_intelligence_results')
 
-    # Propagate errors
+    # Only propagate technical errors — news failures are non-fatal
+    # (Finnhub free tier doesn't cover historical news, but PM/RM can still work)
     if tech_result.get('error') and not state.get('error'):
         state['error'] = tech_result['error']
-    if news_result.get('error') and not state.get('error'):
-        state['error'] = news_result['error']
 
+    # Always advance to portfolio manager even when news is unavailable
     if not state.get('error'):
         state['current_step'] = 'analysis_complete'
 
